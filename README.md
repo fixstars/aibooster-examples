@@ -10,4 +10,4 @@ pip install aibooster
 
 ## Documentation
 
-See the [official documentation](https://aibooster.pages.fixstars.com/develop/faib/) for details.
+See the [official documentation](https://doc.aibooster.fixstars.com/) for details.
