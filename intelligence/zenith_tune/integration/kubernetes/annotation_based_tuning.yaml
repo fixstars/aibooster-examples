@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: annotation-based-tuning-script
+data:
+  train_mnist_tunable.py: |
+    #!/usr/bin/env python
+    """MNIST training script for annotation-based tuning."""
+
+    import argparse
+    import os
+    import time
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    import torch.nn.functional as F
+    from torchvision import datasets, transforms
+
+
+    class Net(nn.Module):
+        def __init__(self):
+            super(Net, self).__init__()
+            self.conv1 = nn.Conv2d(1, 4, 3, 1)
+            self.conv2 = nn.Conv2d(4, 8, 3, 1)
+            self.dropout1 = nn.Dropout(0.25)
+            self.dropout2 = nn.Dropout(0.5)
+            self.fc1 = nn.Linear(1152, 16)
+            self.fc2 = nn.Linear(16, 10)
+
+        def forward(self, x):
+            x = self.conv1(x)
+            x = F.relu(x)
+            x = self.conv2(x)
+            x = F.relu(x)
+            x = F.max_pool2d(x, 2)
+            x = self.dropout1(x)
+            x = torch.flatten(x, 1)
+            x = self.fc1(x)
+            x = F.relu(x)
+            x = self.dropout2(x)
+            x = self.fc2(x)
+            output = F.log_softmax(x, dim=1)
+            return output
+
+
+    def main():
+        parser = argparse.ArgumentParser(description='MNIST training with tunable hyperparameters')
+        parser.add_argument('--learning-rate', type=float, default=0.01,
+                            help='Learning rate for training (default: 0.01)')
+        parser.add_argument('--batch-size', type=int, default=32,
+                            help='Batch size for training (default: 32)')
+        parser.add_argument('--optimizer', type=str, choices=['sgd', 'adam', 'rmsprop'],
+                            default='sgd', help='Optimizer type (default: sgd)')
+        parser.add_argument('--epochs', type=int, default=2,
+                            help='Number of epochs to train (default: 2)')
+        args = parser.parse_args()
+
+        learning_rate = args.learning_rate
+        batch_size = args.batch_size
+        optimizer_type = args.optimizer
+
+        print(f'Hyperparameters:')
+        print(f'  Learning rate: {learning_rate}')
+        print(f'  Batch size: {batch_size}')
+        print(f'  Optimizer: {optimizer_type}')
+
+        # Load MNIST dataset
+        print('Loading MNIST dataset...')
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+
+        dataset = datasets.MNIST('../data', train=True, download=True, transform=transform)
+        train_loader = torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, shuffle=True, num_workers=0
+        )
+
+        # Initialize model
+        model = Net()
+
+        # Select optimizer based on environment variable
+        if optimizer_type == 'adam':
+            optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        elif optimizer_type == 'rmsprop':
+            optimizer = optim.RMSprop(model.parameters(), lr=learning_rate)
+        else:  # default to SGD
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+
+        print(f'Using optimizer: {optimizer.__class__.__name__}')
+
+        # Training
+        start_time = time.time()
+        model.train()
+        final_loss = None
+
+        for epoch in range(args.epochs):
+            for batch_idx, (data, target) in enumerate(train_loader):
+                optimizer.zero_grad()
+                output = model(data)
+                loss = F.nll_loss(output, target)
+                loss.backward()
+                optimizer.step()
+
+                # Keep track of the last loss value
+                final_loss = loss.item()
+
+                if batch_idx % 100 == 0:
+                    print(f'Epoch {epoch+1}/{args.epochs}, Batch {batch_idx}, Loss: {loss.item():.6f}')
+
+            print(f'Epoch {epoch+1} completed, Last batch loss: {final_loss:.6f}')
+
+        elapsed_time = time.time() - start_time
+
+        print(f'Training completed')
+        print(f'Final Loss: {final_loss:.6f}')
+        print(f'Elapsed time: {elapsed_time:.4f} seconds')
+
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
+metadata:
+  generateName: annotation-based-tuning-
+  annotations:
+    zenith-tune/optimization-config: |
+      variables:
+        - name: "learning_rate"
+          type: "float"
+          range: [0.001, 0.1]
+          log: true
+          target_env: "LEARNING_RATE"
+        - name: "batch_size"
+          type: "int"
+          range: [16, 128]
+          step: 16
+          target_env: "BATCH_SIZE"
+        - name: "optimizer"
+          type: "categorical"
+          choices: ["sgd", "adam", "rmsprop"]
+          target_env: "OPTIMIZER"
+      objective:
+        name: "loss"
+        regex: "Final Loss: ([0-9]+\\.?[0-9]*)"
+        direction: "minimize"
+      n_trials: 5
+spec:
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: pytorch
+              image: pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
+              command:
+                - sh
+                - -c
+                - |
+                  python /scripts/train_mnist_tunable.py \
+                    --learning-rate ${LEARNING_RATE:-0.01} \
+                    --batch-size ${BATCH_SIZE:-32} \
+                    --optimizer ${OPTIMIZER:-sgd} \
+                    --epochs 2
+              resources:
+                limits:
+                  cpu: "2"
+                  memory: "1Gi"
+              volumeMounts:
+                - name: training-script
+                  mountPath: /scripts
+          volumes:
+            - name: training-script
+              configMap:
+                name: annotation-based-tuning-script
