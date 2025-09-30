@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
 
 # Runs the "7B" parameter model
 

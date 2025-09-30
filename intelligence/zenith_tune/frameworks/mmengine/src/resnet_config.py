@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 model = dict(type="ResNet")
 
 norm_cfg = dict(mean=[0.491, 0.482, 0.447], std=[0.202, 0.199, 0.201])

@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 """AIBooster Client usage example."""
 
 from datetime import datetime, timedelta, timezone

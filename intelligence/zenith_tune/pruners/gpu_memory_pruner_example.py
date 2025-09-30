@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 """
 Example of using AIBoosterGPUMemoryUsedPruner with CommandOutputTuner.
 

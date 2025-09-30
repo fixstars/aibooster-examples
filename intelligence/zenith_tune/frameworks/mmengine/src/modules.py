@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as tvt

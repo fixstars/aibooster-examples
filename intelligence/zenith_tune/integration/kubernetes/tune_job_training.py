@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 """Example script for tuning OMP_NUM_THREADS using sequential 1-job-1-trial approach."""
 
 import argparse

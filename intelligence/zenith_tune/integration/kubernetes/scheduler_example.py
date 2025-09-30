@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Fixstars Corporation
+# SPDX-License-Identifier: MIT
+
 """Run PyTorchJob tuning scheduler with annotation-based configuration."""
 
 from aibooster.intelligence.zenith_tune.integration.kubernetes import (
