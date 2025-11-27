@@ -3,16 +3,15 @@
 
 import glob
 import os
-import time
-from typing import List, Tuple
+from typing import List, Tuple, cast
+from numbers import Real
 
 import torch
 from PIL import Image
 from torchvision import transforms
 from torchvision.models import resnet50
 
-from aibooster.intelligence.acuirt.convert import convert_model
-from aibooster.intelligence.acuirt.inference import load_runtime_modules
+from aibooster.intelligence.acuirt import ConversionWorkflow
 
 
 def get_imagenet_classes():
@@ -32,10 +31,7 @@ def get_imagenet_classes():
 def get_image_paths(root: str):
     jpeg_files = glob.glob(os.path.join(root, "**", "*.JPEG"), recursive=True)
 
-    # 両方のリストを結合
-    all_jpeg_files = jpeg_files
-
-    return all_jpeg_files
+    return jpeg_files
 
 
 class ImageNetDataset:
@@ -64,77 +60,87 @@ class ImageNetDataset:
         return (
             image.unsqueeze(0),
             os.path.splitext(os.path.basename(image_path).split("_")[1])[0],
-        )  # バッチ次元を追加
+        )  # add batch dim
 
     @staticmethod
     def post_process(inputs: Tuple[torch.Tensor, str]):
-        return ((inputs[0],), {})
+        return ((inputs[0].cuda(),), {})
+
+
+# Evaluator for ImageNet classification
+# Calculates Top-1 accuracy
+class ImageNetEvaluator:
+    def __init__(self, dataset):
+        self.correct = 0
+        self.total = 0
+        self.labels = [label for _, label in dataset]
+        self.image_classes = get_imagenet_classes()
+
+    def update(self, result: torch.Tensor):
+        predicted_class = self.image_classes[result.argmax(dim=-1).cpu().item()]
+
+        if predicted_class == self.labels[self.total]:
+            self.correct += 1
+        self.total += 1
+
+    def aggregate(self):
+        accuracy = self.correct / self.total if self.total > 0 else 0.0
+        return {"accuracy": cast(Real, accuracy)}
+
+    def reset(self):
+        self.correct = 0
+        self.total = 0
 
 
 def main():
     resnet = resnet50(pretrained=True)
     resnet = resnet.cuda().eval()
 
-    # int8量子化(PTQ)でTensorRTに変換する場合の設定
+    # int8 quantization (PTQ) settings for conversion to TensorRT
     config = {
         "rt_mode": "onnx",
         "auto": True,
         "int8": True,
     }
 
-    # 変換後のモデルを保存するパスを指定してください。
+    # export path to save the converted model
     path = "./model"
 
     image_paths = get_image_paths("./imagenet-sample-images")
+
+    # create a dataset with ImageNet sample images
     dataset = ImageNetDataset(image_paths)
-    image_classes = get_imagenet_classes()
 
-    # ダミーのデータセットを作成します
-    # Iterableなデータセットを渡すことで、calibrationが自動的に行われます。
+    # set profiler settings
+    profiler_settings = {
+        "activities": [
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        "profile_memory": False,
+        "schedule": torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+    }
 
-    # TensorRTへの変換と、calibrationを実行します。
-    # 変換後のモデルはpathに保存されます。
-    # また、summaryというdict型の変数に変換されたモデルの情報が格納されます。
-    summary = convert_model(resnet, config, path, False, dataset, dataset.post_process)
-    resnet = resnet.cuda()
+    # create conversion workflow
+    workflow = ConversionWorkflow(
+        resnet,
+        ImageNetEvaluator(dataset),
+        dataset,
+        dataset.post_process,
+        settings_torch_profiler=profiler_settings,
+        eval_non_converted_model=True,
+    )
 
-    # TensorRT用の推論エンジンをロードします。
-    resnet_trt = load_runtime_modules(resnet, summary, path)
+    # run conversion workflow and get the converted model and report
+    resnet_trt, report = workflow.run(config, path)
 
-    # 推論を実行します。
-    correct, correct_trt, total = 0, 0, len(dataset)
-    process_time, process_time_trt = [], []
-    for idx in range(len(dataset)):
-        image, label = dataset[idx]
-        args = [image.cuda()]
-
-        start = time.perf_counter_ns()
-        outputs_trt = resnet_trt(*args).argmax(dim=-1)
-        end = time.perf_counter_ns()
-        inference_time_trt = (end - start) / 1_000
-        process_time_trt.append(inference_time_trt)
-        predicted_class_trt = image_classes[outputs_trt.cpu().item()]
-
-        if predicted_class_trt == label:
-            correct_trt += 1
-
-        start = time.perf_counter_ns()
-        with torch.no_grad():
-            outputs = resnet(*args).argmax(dim=-1)
-        end = time.perf_counter_ns()
-
-        inference_time = (end - start) / 1_000  # μ秒に変換
-        process_time.append(inference_time)
-        predicted_class = image_classes[outputs.cpu().item()]
-
-        if predicted_class == label:
-            correct += 1
+    assert report.non_converted_performance is not None
 
     print(
-        f"PyTorch: Top-1 Accuracy: {correct}/{total} ({100.0 * correct / total:.2f}%), Average Inference Time: {sum(process_time) / total:.2f}μs"
+        f"PyTorch: Top-1 Accuracy: {report.non_converted_performance.accuracy['accuracy'] * 100:.2f}%, Average Inference Time: {report.non_converted_performance.latency}"
     )
     print(
-        f"AcuiRT: Top-1 Accuracy: {correct_trt}/{total} ({100.0 * correct_trt / total:.2f}%), Average Inference Time: {sum(process_time_trt) / total:.2f}μs"
+        f"AcuiRT: Top-1 Accuracy: {report.performance.accuracy['accuracy'] * 100:.2f}%, Average Inference Time: {report.performance.latency}"
     )
 
 

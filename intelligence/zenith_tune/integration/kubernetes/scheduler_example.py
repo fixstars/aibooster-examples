@@ -6,16 +6,22 @@
 from aibooster.intelligence.zenith_tune.integration.kubernetes import (
     JobFilter,
     PyTorchJobTuningScheduler,
+    TuningConfig,
+    TuningRule,
 )
 
 # Only target jobs with zenith-tune/optimization-config annotation
-job_filter = JobFilter(
-    annotations={"zenith-tune/optimization-config": None}  # Key existence check
-)
+tuning_rules = [
+    TuningRule(
+        job_filter=JobFilter(
+            annotations={"zenith-tune/optimization-config": None}  # Key existence check
+        ),
+        tuning_config=TuningConfig(),
+    )
+]
 
 scheduler = PyTorchJobTuningScheduler(
-    submit_namespace="default",
-    job_filter=job_filter,
-    max_concurrent_tuning=1,
+    tuning_rules=tuning_rules,
+    max_concurrent_tuning_per_namespace=2,
 )
 scheduler.run()

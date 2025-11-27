@@ -7,9 +7,9 @@ import tempfile
 from datetime import datetime
 
 import torch
-from aibooster.intelligence.acuirt.convert.convert import convert_model
-from aibooster.intelligence.acuirt.inference.inference import load_runtime_modules
-from aibooster.intelligence.acuirt import AcuiRTDefaultLogger
+from aibooster.intelligence.acuirt.convert import convert_model
+from aibooster.intelligence.acuirt.inference import load_runtime_modules
+from aibooster.intelligence.acuirt.utils import AcuiRTDefaultLogger
 from tensorrt import ILogger
 from torchvision.models import resnet50
 
@@ -39,7 +39,7 @@ def main():
     data = [{"x": torch.randn(1, 3, 224, 224)} for _ in range(10)]
 
     # If applying a custom logger, pass the logger as an argument
-    summary = convert_model(resnet, config, path, False, data, logger=logger)
+    summary = convert_model(resnet, config, path, data, logger=logger)
     model = load_runtime_modules(resnet, summary, path, logger=logger)
     batch = data[0]["x"]
     model(batch.cuda())
