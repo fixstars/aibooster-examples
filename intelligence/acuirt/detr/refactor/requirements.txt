@@ -1,0 +1,10 @@
+aibooster
+cython
+git+https://github.com/cocodataset/panopticapi.git#egg=panopticapi
+onnx<=1.19.0
+onnxruntime
+pycocotools
+scipy
+submitit
+torch<=2.5.0
+torchvision>=0.6.0

@@ -1,0 +1,5 @@
+{
+    "rt_mode": "onnx",
+    "auto": true,
+    "fp16": true
+}

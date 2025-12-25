@@ -1,0 +1,4 @@
+{
+    "rt_mode": "onnx",
+    "auto": true
+}
